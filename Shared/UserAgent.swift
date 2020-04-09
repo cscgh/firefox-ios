@@ -94,7 +94,7 @@ public enum UserAgentPlatform {
 
 public struct CustomUserAgentConstant {
     private static let defaultMobileUA = UserAgentBuilder.defaultMobileUserAgent().userAgent()
-    private static let customDesktopUA = UserAgentBuilder.defaultDesktopUserAgent().clone(extensions: "Version/\(AppInfo.appVersion) \(UserAgent.uaBitSafari)")
+    private static let customDesktopUA = UserAgentBuilder.defaultDesktopUserAgent().clone(extensions: "Version/13.1 \(UserAgent.uaBitSafari)")
     public static let mobileUserAgent = [
         "paypal.com": defaultMobileUA,
         "yahoo.com": defaultMobileUA ]
@@ -139,6 +139,6 @@ public struct UserAgentBuilder {
     }
     
     public static func defaultDesktopUserAgent() -> UserAgentBuilder {
-        return UserAgentBuilder(product: UserAgent.product, systemInfo: "(Macintosh; Intel Mac OS X 10.15)", platform: UserAgent.platform, platformDetails: UserAgent.platformDetails, extensions: "FxiOS/\(AppInfo.appVersion) \(UserAgent.uaBitSafari)")
+        return UserAgentBuilder(product: UserAgent.product, systemInfo: "(Macintosh; Intel Mac OS X 10_15_4)", platform: UserAgent.platform, platformDetails: UserAgent.platformDetails, extensions: "Version/13.1 \(UserAgent.uaBitSafari)")
     }
 }

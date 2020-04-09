@@ -157,7 +157,7 @@ open class SyncStateMachine {
 
             // Take the scratchpad and add the fxaDeviceId from the state, and hashedUID from the token
             let b = Scratchpad.Builder(p: scratchpad)
-            if let deviceID = authState.deviceID {
+            if let deviceID = RustFirefoxAccounts.shared.accountManager.deviceConstellation()?.state()?.localDevice?.id {
                 b.fxaDeviceId = deviceID
             } else {
                 // Either deviceRegistration hasn't occurred yet (our bug) or
@@ -979,7 +979,7 @@ extension Ready: EngineStateChanges {
                 break
             }
         }
-        return Array(needReset).sorted()
+        return needReset.sorted()
     }
 
     public func enginesEnabled() -> [String] {
@@ -992,7 +992,7 @@ extension Ready: EngineStateChanges {
                 break
             }
         }
-        return Array(engines).sorted()
+        return engines.sorted()
     }
 
     public func enginesDisabled() -> [String] {
@@ -1005,7 +1005,7 @@ extension Ready: EngineStateChanges {
                 break
             }
         }
-        return Array(engines).sorted()
+        return engines.sorted()
     }
 
     public func clearLocalCommands() {

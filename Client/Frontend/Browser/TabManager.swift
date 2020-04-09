@@ -70,6 +70,9 @@ class TabManager: NSObject {
         // We do this to go against the configuration of the <meta name="viewport">
         // tag to behave the same way as Safari :-(
         configuration.ignoresViewportScaleLimits = true
+        // I, csc, try this because autoplaying anything without user opt-in
+        // is wrong.
+        configuration.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypes.all
         if isPrivate {
             configuration.websiteDataStore = WKWebsiteDataStore.nonPersistent()
         }

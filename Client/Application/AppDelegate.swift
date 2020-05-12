@@ -15,6 +15,7 @@ import Sync
 import CoreSpotlight
 import UserNotifications
 import Account
+import Glean
 
 #if canImport(BackgroundTasks)
  import BackgroundTasks
@@ -46,6 +47,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
 
     var receivedURLs = [URL]()
     var unifiedTelemetry: UnifiedTelemetry?
+
+    var glean = Glean.shared
 
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         //
@@ -107,6 +110,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
 
         let profile = getProfile(application)
 
+        // Initialize Glean telemetry
+        glean.initialize(uploadEnabled: sendUsageData, configuration: Configuration(channel: AppConstants.BuildChannel.rawValue))
+
         unifiedTelemetry = UnifiedTelemetry(profile: profile)
 
         // Set up a web server that serves us static content. Do this early so that it is ready when the UI is presented.
@@ -138,6 +144,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         self.updateAuthenticationInfo()
         SystemUtils.onFirstRun()
 
+        RustFirefoxAccounts.startup(prefs: profile.prefs).uponQueue(.main) { _ in
+            print("RustFirefoxAccounts started")
+        }
         log.info("startApplication end")
         return true
     }
@@ -219,10 +228,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         AutocompleteTextField.appearance().semanticContentAttribute = .forceLeftToRight
 
         pushNotificationSetup()
-
-        if let profile = profile as? BrowserProfile {
-            RustFirefoxAccounts.startup(prefs: profile.prefs) { _ in }
-        }
 
         // Leanplum usersearch variable setup for onboarding research
         _ = OnboardingUserResearch()

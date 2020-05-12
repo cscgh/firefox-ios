@@ -160,16 +160,6 @@ extension Profile {
         }
         return clientID
     }
-    
-    // Returns false for when there is no account available and true if the account
-    // is not verified or has no password attached to it
-//    var accountNeedsUserAction: Bool {
-//        guard let account = self.getAccount() else { return false }
-//        let actionNeeded = account.actionNeeded
-//        let needsVerification = actionNeeded == FxAActionNeeded.needsPassword || actionNeeded == FxAActionNeeded.needsVerification
-//
-//        return needsVerification
-//    }
 }
 
 open class BrowserProfile: Profile {
@@ -183,19 +173,18 @@ open class BrowserProfile: Profile {
     let readingListDB: BrowserDB
     var syncManager: SyncManager!
 
-    private static var loginsKey: String {
-        let key = "sqlcipher.key.logins.db"
-        let keychain = KeychainWrapper.sharedAppContainerKeychain
-        keychain.ensureStringItemAccessibility(.afterFirstUnlock, forKey: key)
-        if keychain.hasValue(forKey: key), let secret = keychain.string(forKey: key) {
+    private let loginsSaltKeychainKey = "sqlcipher.key.logins.salt"
+    private let loginsUnlockKeychainKey = "sqlcipher.key.logins.db"
+    private lazy var loginsKey: String = {
+        if let secret = keychain.string(forKey: loginsUnlockKeychainKey) {
             return secret
         }
 
         let Length: UInt = 256
         let secret = Bytes.generateRandomBytes(Length).base64EncodedString
-        keychain.set(secret, forKey: key, withAccessibility: .afterFirstUnlock)
+        keychain.set(secret, forKey: loginsUnlockKeychainKey, withAccessibility: .afterFirstUnlock)
         return secret
-    }
+    }()
 
     var syncDelegate: SyncDelegate?
 
@@ -330,7 +319,7 @@ open class BrowserProfile: Profile {
         log.debug("Reopening profile.")
         isShutdown = false
 
-        if !places.isOpen && !RustFirefoxAccounts.shared.accountManager.hasAccount() {
+        if !places.isOpen && !RustFirefoxAccounts.shared.hasAccount() {
             places.migrateBookmarksIfNeeded(fromBrowserDB: db)
         }
 
@@ -493,40 +482,42 @@ open class BrowserProfile: Profile {
     }
 
     public func sendItem(_ item: ShareItem, toDevices devices: [RemoteDevice]) -> Success {
-        guard let constellation = RustFirefoxAccounts.shared.accountManager.deviceConstellation() else {
-            return deferMaybe(NoAccountError())
-        }
-        devices.forEach {
-            if let id = $0.id, let title = item.title {
-                constellation.sendEventToDevice(targetDeviceId: id, e: .sendTab(title: title, url: item.url))
+        let deferred = Success()
+        RustFirefoxAccounts.shared.accountManager.uponQueue(.main) { accountManager in
+            guard let constellation = accountManager.deviceConstellation() else {
+                deferred.fill(Maybe(failure: NoAccountError()))
+                return
             }
+            devices.forEach {
+                if let id = $0.id, let title = item.title {
+                    constellation.sendEventToDevice(targetDeviceId: id, e: .sendTab(title: title, url: item.url))
+                }
+            }
+            deferred.fill(Maybe(success: ()))
         }
-        return succeed()
+        return deferred
     }
 
     lazy var logins: RustLogins = {
         let databasePath = URL(fileURLWithPath: (try! files.getAndEnsureDirectory()), isDirectory: true).appendingPathComponent("logins.db").path
 
         let salt: String
-        let key = "sqlcipher.key.logins.salt"
-        let keychain = KeychainWrapper.sharedAppContainerKeychain
-        keychain.ensureStringItemAccessibility(.afterFirstUnlock, forKey: key)
-        if keychain.hasValue(forKey: key), let val = keychain.string(forKey: key) {
+        if let val = keychain.string(forKey: loginsSaltKeychainKey) {
             salt = val
         } else {
-            salt = RustLogins.setupPlaintextHeaderAndGetSalt(databasePath: databasePath, encryptionKey: BrowserProfile.loginsKey)
-            keychain.set(salt, forKey: key, withAccessibility: .afterFirstUnlock)
+            salt = RustLogins.setupPlaintextHeaderAndGetSalt(databasePath: databasePath, encryptionKey: loginsKey)
+            keychain.set(salt, forKey: loginsSaltKeychainKey, withAccessibility: .afterFirstUnlock)
         }
 
-        return RustLogins(databasePath: databasePath, encryptionKey: BrowserProfile.loginsKey, salt: salt)
+        return RustLogins(databasePath: databasePath, encryptionKey: loginsKey, salt: salt)
     }()
 
     func hasAccount() -> Bool {
-        return rustFxA.accountManager.hasAccount()
+        return rustFxA.hasAccount()
     }
 
     func hasSyncableAccount() -> Bool {
-        return hasAccount() && !rustFxA.accountManager.accountNeedsReauth()
+        return hasAccount() && !rustFxA.accountNeedsReauth()
     }
 
     var rustFxA: RustFirefoxAccounts {
@@ -543,7 +534,17 @@ open class BrowserProfile: Profile {
 
         // remove Account Metadata
         prefs.removeObjectForKey(PrefsKeys.KeyLastRemoteTabSyncTime)
+
+        // Save the keys that will be restored
+        let salt = keychain.string(forKey: loginsSaltKeychainKey)
+        let unlockKey = loginsKey
+        // Remove all items, removal is not key-by-key specific (due to the risk of failing to delete something), simply restore what is needed.
         keychain.removeAllKeys()
+        // Restore the keys that are still needed
+        if let salt = salt {
+            keychain.set(salt, forKey: loginsSaltKeychainKey, withAccessibility: .afterFirstUnlock)
+        }
+        keychain.set(unlockKey, forKey: loginsUnlockKeychainKey, withAccessibility: .afterFirstUnlock)
 
         // Tell any observers that our account has changed.
         NotificationCenter.default.post(name: .FirefoxAccountChanged, object: nil)
@@ -892,7 +893,7 @@ open class BrowserProfile: Profile {
 
             if constellationStateUpdate == nil {
                 constellationStateUpdate = NotificationCenter.default.addObserver(forName: .constellationStateUpdate, object: nil, queue: .main) { [weak self] notification in
-                    guard let state = self?.profile.rustFxA.accountManager.deviceConstellation()?.state() else {
+                    guard let accountManager = self?.profile.rustFxA.accountManager.peek(), let state = accountManager.deviceConstellation()?.state() else {
                         return
                     }
                     guard let self = self else { return }
@@ -906,12 +907,12 @@ open class BrowserProfile: Profile {
 
             let clientSynchronizer = ready.synchronizer(ClientsSynchronizer.self, delegate: delegate, prefs: prefs, why: why)
             return clientSynchronizer.synchronizeLocalClients(self.profile.remoteClientsAndTabs, withServer: ready.client, info: ready.info, notifier: self) >>== { result in
-                guard case .completed = result else {
+                guard case .completed = result, let accountManager = self.profile.rustFxA.accountManager.peek() else {
                     return deferMaybe(result)
                 }
                 log.debug("Updating FxA devices list.")
 
-                self.profile.rustFxA.accountManager.deviceConstellation()?.refreshState()
+                accountManager.deviceConstellation()?.refreshState()
                 return deferMaybe(result)
             }
         }
@@ -938,19 +939,21 @@ open class BrowserProfile: Profile {
 
         fileprivate func syncUnlockInfo() -> Deferred<Maybe<SyncUnlockInfo>> {
             let d = Deferred<Maybe<SyncUnlockInfo>>()
-            RustFirefoxAccounts.shared.accountManager.getAccessToken(scope: OAuthScope.oldSync) { result in
-                guard let accessTokenInfo = try? result.get(), let key = accessTokenInfo.key else {
-                    d.fill(Maybe(failure: ScopedKeyError()))
-                    return
-                }
-
-                RustFirefoxAccounts.shared.accountManager.getTokenServerEndpointURL() { result in
-                    guard case .success(let tokenServerEndpointURL) = result else {
-                        d.fill(Maybe(failure: SyncUnlockGetURLError()))
+            profile.rustFxA.accountManager.uponQueue(.main) { accountManager in
+                accountManager.getAccessToken(scope: OAuthScope.oldSync) { result in
+                    guard let accessTokenInfo = try? result.get(), let key = accessTokenInfo.key else {
+                        d.fill(Maybe(failure: ScopedKeyError()))
                         return
                     }
 
-                    d.fill(Maybe(success: SyncUnlockInfo(kid: key.kid, fxaAccessToken: accessTokenInfo.token, syncKey: key.k, tokenserverURL: tokenServerEndpointURL.absoluteString)))
+                    accountManager.getTokenServerEndpointURL() { result in
+                        guard case .success(let tokenServerEndpointURL) = result else {
+                            d.fill(Maybe(failure: SyncUnlockGetURLError()))
+                            return
+                        }
+
+                        d.fill(Maybe(success: SyncUnlockInfo(kid: key.kid, fxaAccessToken: accessTokenInfo.token, syncKey: key.k, tokenserverURL: tokenServerEndpointURL.absoluteString)))
+                    }
                 }
             }
             return d
@@ -1042,8 +1045,7 @@ open class BrowserProfile: Profile {
             syncLock.lock()
             defer { syncLock.unlock() }
 
-            let fxa = RustFirefoxAccounts.shared.accountManager
-            guard let profile = fxa.accountProfile(), let deviceID = fxa.deviceConstellation()?.state()?.localDevice?.id else {
+            guard let fxa = RustFirefoxAccounts.shared.accountManager.peek(), let profile = fxa.accountProfile(), let deviceID = fxa.deviceConstellation()?.state()?.localDevice?.id else {
                 return deferMaybe(NoAccountError())
             }
 
@@ -1160,8 +1162,8 @@ open class BrowserProfile: Profile {
         }
 
         @discardableResult public func syncEverything(why: SyncReason) -> Success {
-            if RustFirefoxAccounts.shared.accountManager.accountMigrationInFlight() {
-                RustFirefoxAccounts.shared.accountManager.retryMigration() { _ in }
+            if let accountManager = RustFirefoxAccounts.shared.accountManager.peek(), accountManager.accountMigrationInFlight() {
+                accountManager.retryMigration() { _ in }
                 return Success()
             }
 

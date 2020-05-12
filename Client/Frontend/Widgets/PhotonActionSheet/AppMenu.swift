@@ -62,6 +62,10 @@ extension PhotonActionSheetProtocol {
             settingsTableViewController.settingsDelegate = vcDelegate
 
             let controller = ThemedNavigationController(rootViewController: settingsTableViewController)
+            // On iPhone iOS13 the WKWebview crashes while presenting file picker if its not full screen. Ref #6232
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                controller.modalPresentationStyle = .fullScreen
+            }
             controller.presentingModalViewControllerDelegate = vcDelegate
 
             // Wait to present VC in an async dispatch queue to prevent a case where dismissal
@@ -84,13 +88,13 @@ extension PhotonActionSheetProtocol {
         }
 
         let rustAccount = RustFirefoxAccounts.shared
-        let needsReauth = rustAccount.accountManager.accountNeedsReauth()
+        let needsReauth = rustAccount.accountNeedsReauth()
 
         guard let userProfile = rustAccount.userProfile else {
             return PhotonActionSheetItem(title: Strings.FxASignInToSync, iconString: "menu-sync", handler: action)
         }
         let title: String = {
-            if rustAccount.accountManager.accountNeedsReauth() {
+            if rustAccount.accountNeedsReauth() {
                 return Strings.FxAAccountVerifyPassword
             }
             return userProfile.displayName ?? userProfile.email

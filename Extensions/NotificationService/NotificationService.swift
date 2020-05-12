@@ -7,6 +7,11 @@ import Shared
 import Storage
 import Sync
 import UserNotifications
+import os.log
+
+func consoleLog(_ msg: String) {
+    os_log("%{public}@", log: OSLog(subsystem: "org.mozilla.firefox", category: "firefoxnotificationservice"), type: OSLogType.debug, msg)
+}
 
 class NotificationService: UNNotificationServiceExtension {
     var display: SyncDataDisplay?
@@ -18,6 +23,7 @@ class NotificationService: UNNotificationServiceExtension {
     // AppDelegate.application(_:didReceiveRemoteNotification:completionHandler:)
     // Once the notification is tapped, then the same userInfo is passed to the same method in the AppDelegate.
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        consoleLog("push received")
         let userInfo = request.content.userInfo
 
         let content = request.content.mutableCopy() as! UNMutableNotificationContent
@@ -44,6 +50,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     func didFinish(_ what: PushMessage? = nil, with error: PushMessageError? = nil) {
+        consoleLog("push didFinish start")
         defer {
             // We cannot use tabqueue after the profile has shutdown;
             // however, we can't use weak references, because TabQueue isn't a class.
@@ -51,6 +58,7 @@ class NotificationService: UNNotificationServiceExtension {
             self.display?.tabQueue = nil
 
             profile?._shutdown()
+            consoleLog("push didFinish end")
         }
 
         guard let display = self.display else {
@@ -133,6 +141,7 @@ extension SyncDataDisplay {
     }
 
     func displayAccountVerifiedNotification() {
+        Sentry.shared.send(message: "SentTab error: account not verified")
         #if MOZ_CHANNEL_BETA || DEBUG
             presentNotification(title: Strings.SentTab_NoTabArrivingNotification_title, body: "DEBUG: Account Verified")
             return
@@ -141,9 +150,9 @@ extension SyncDataDisplay {
     }
 
     func displayUnknownMessageNotification(debugInfo: String) {
+        Sentry.shared.send(message: "SentTab error: \(debugInfo)")
         #if MOZ_CHANNEL_BETA || DEBUG
             presentNotification(title: Strings.SentTab_NoTabArrivingNotification_title, body: "DEBUG: " + debugInfo)
-            Sentry.shared.send(message: "SentTab error: \(debugInfo)")
             return
         #endif
 
@@ -181,10 +190,10 @@ extension SyncDataDisplay {
             title = Strings.SentTab_NoTabArrivingNotification_title
             #if MOZ_CHANNEL_BETA || DEBUG
                 body = "DEBUG: Sent Tabs with no tab"
-                Sentry.shared.send(message: "SentTab error: no tab")
             #else
                 body = Strings.SentTab_NoTabArrivingNotification_body
             #endif
+            Sentry.shared.send(message: "SentTab error: no tab")
         } else {
             let deviceNames = Set(tabs.compactMap { $0["deviceName"] as? String })
             if let deviceName = deviceNames.first, deviceNames.count == 1 {

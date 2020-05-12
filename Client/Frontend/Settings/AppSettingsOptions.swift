@@ -335,8 +335,7 @@ class AccountStatusSetting: WithAccountSetting {
     }
 
     override func onClick(_ navigationController: UINavigationController?) {
-        let account = profile.rustFxA.accountManager
-        guard !account.accountNeedsReauth() else {
+        guard !profile.rustFxA.accountNeedsReauth() else {
             let view = FxAWebView(pageType: .emailLoginFlow, profile: profile, dismissalStyle: .popToRootVC)
             navigationController?.pushViewController(view, animated: true)
             return
@@ -452,6 +451,20 @@ class ForceCrashSetting: HiddenSetting {
 
     override func onClick(_ navigationController: UINavigationController?) {
         Sentry.shared.crash()
+    }
+}
+
+class ChangeToChinaSetting: HiddenSetting {
+    override var title: NSAttributedString? {
+        return NSAttributedString(string: "Debug: toggle China version (needs restart)", attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])
+    }
+
+    override func onClick(_ navigationController: UINavigationController?) {
+        if UserDefaults.standard.bool(forKey: debugPrefIsChinaEdition) {
+            UserDefaults.standard.removeObject(forKey: debugPrefIsChinaEdition)
+        } else {
+            UserDefaults.standard.set(true, forKey: debugPrefIsChinaEdition)
+        }
     }
 }
 
@@ -854,6 +867,7 @@ class ChinaSyncServiceSetting: WithoutAccountSetting {
 
     @objc func switchValueChanged(_ toggle: UISwitch) {
         prefs.setObject(toggle.isOn, forKey: prefKey)
+        RustFirefoxAccounts.reconfig()
     }
 }
 

@@ -7,6 +7,7 @@ import Shared
 import Account
 import SwiftKeychainWrapper
 import LocalAuthentication
+import Glean
 
 // This file contains all of the settings available in the main settings screen of the app.
 
@@ -525,6 +526,27 @@ class SentryIDSetting: HiddenSetting {
     }
 }
 
+class ShowEtpCoverSheet: HiddenSetting {
+    let profile: Profile
+    
+    override var title: NSAttributedString? {
+        return NSAttributedString(string: NSLocalizedString("Debug: ETP Cover Sheet On", comment: "Debug option to show ETP Cover Sheet"), attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])
+    }
+    
+    override init(settings: SettingsTableViewController) {
+        self.profile = settings.profile
+        super.init(settings: settings)
+    }
+    
+    override func onClick(_ navigationController: UINavigationController?) {
+        BrowserViewController.foregroundBVC().hasTriedToPresentETPAlready = false
+        // ETP is shown when user opens app for 3rd time on clean install.
+        // Hence setting session to 2 (0,1,2) for 3rd install as it starts from 0 being 1st session
+        self.profile.prefs.setInt(2, forKey: PrefsKeys.KeyInstallSession)
+        self.profile.prefs.setString(ETPCoverSheetShowType.CleanInstall.rawValue, forKey: PrefsKeys.KeyETPCoverSheetShowType)
+    }
+}
+
 class ToggleOnboarding: HiddenSetting {
     override var title: NSAttributedString? {
         return NSAttributedString(string: NSLocalizedString("Debug: Toggle onboarding type", comment: "Debug option"), attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])
@@ -700,6 +722,7 @@ class SendAnonymousUsageDataSetting: BoolSetting {
                 AdjustIntegration.setEnabled($0)
                 LeanPlumClient.shared.set(attributes: [LPAttributeKey.telemetryOptIn: $0])
                 LeanPlumClient.shared.set(enabled: $0)
+                Glean.shared.setUploadEnabled($0)
             }
         )
     }
@@ -920,7 +943,7 @@ class ChinaSyncServiceSetting: Setting {
         UnifiedTelemetry.recordEvent(category: .action, method: .tap, object: .chinaServerSwitch)
         guard profile.rustFxA.hasAccount() else {
             prefs.setObject(toggle.isOn, forKey: prefKey)
-            RustFirefoxAccounts.reconfig()
+            RustFirefoxAccounts.reconfig(prefs: profile.prefs)
             return
         }
 
@@ -931,7 +954,7 @@ class ChinaSyncServiceSetting: Setting {
         let ok = UIAlertAction(title: Strings.OKString, style: .default) { _ in
             self.prefs.setObject(toggle.isOn, forKey: self.prefKey)
             self.profile.removeAccount()
-            RustFirefoxAccounts.reconfig()
+            RustFirefoxAccounts.reconfig(prefs: self.profile.prefs)
         }
         let cancel = UIAlertAction(title: Strings.CancelString, style: .default) { _ in
             toggle.setOn(!toggle.isOn, animated: true)

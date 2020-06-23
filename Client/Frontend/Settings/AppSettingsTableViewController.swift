@@ -48,7 +48,7 @@ class AppSettingsTableViewController: SettingsTableViewController {
             HomeSetting(settings: self),
             OpenWithSetting(settings: self),
             ThemeSetting(settings: self),
-            BoolSetting(prefs: prefs, prefKey: "blockPopups", defaultValue: true,
+            BoolSetting(prefs: prefs, prefKey: PrefsKeys.KeyBlockPopups, defaultValue: true,
                         titleText: NSLocalizedString("Block Pop-up Windows", comment: "Block pop-up windows setting")),
            ]
 
@@ -139,7 +139,10 @@ class AppSettingsTableViewController: SettingsTableViewController {
                 ChangeToChinaSetting(settings: self),
                 ToggleOnboarding(settings: self),
                 LeanplumStatus(settings: self),
-                ShowEtpCoverSheet(settings: self)
+                ShowEtpCoverSheet(settings: self),
+                ToggleOnboarding(settings: self),
+                LeanplumStatus(settings: self),
+                ClearOnboardingABVariables(settings: self)
             ])]
 
         return settings

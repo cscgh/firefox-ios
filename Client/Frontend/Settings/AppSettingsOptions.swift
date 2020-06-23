@@ -47,9 +47,7 @@ class ConnectSetting: WithoutAccountSetting {
     override var accessibilityIdentifier: String? { return "SignInToSync" }
 
     override func onClick(_ navigationController: UINavigationController?) {
-        let viewController = AppInfo.isChinaEdition ?
-            FxAWebViewController(pageType: .emailLoginFlow, profile: profile, dismissalStyle: .popToRootVC) :
-            FirefoxAccountSignInViewController(profile: profile, parentType: .settings)
+        let viewController = FirefoxAccountSignInViewController(profile: profile, parentType: .settings, deepLinkParams: nil)
         UnifiedTelemetry.recordEvent(category: .firefoxAccount, method: .view, object: .settings)
         navigationController?.pushViewController(viewController, animated: true)
     }
@@ -340,9 +338,7 @@ class AccountStatusSetting: WithAccountSetting {
 
     override func onClick(_ navigationController: UINavigationController?) {
         guard !profile.rustFxA.accountNeedsReauth() else {
-            let vc = AppInfo.isChinaEdition ?
-                FxAWebViewController(pageType: .emailLoginFlow, profile: profile, dismissalStyle: .popToRootVC) :
-                FirefoxAccountSignInViewController(profile: profile, parentType: .settings)
+            let vc = FirefoxAccountSignInViewController(profile: profile, parentType: .settings, deepLinkParams: nil)
             UnifiedTelemetry.recordEvent(category: .firefoxAccount, method: .view, object: .settings)
             navigationController?.pushViewController(vc, animated: true)
             return
@@ -567,19 +563,35 @@ class ToggleOnboarding: HiddenSetting {
 
 class LeanplumStatus: HiddenSetting {
     let lplumSetupType = LeanPlumClient.shared.lpSetupType()
-
     override var title: NSAttributedString? {
-        return NSAttributedString(string: "Leamplum Status: \(lplumSetupType) | Started: \(LeanPlumClient.shared.isRunning())", attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])
+        return NSAttributedString(string: "LP Setup: \(lplumSetupType) | Started: \(LeanPlumClient.shared.isRunning()) | Device ID: \(LeanPlumClient.shared.leanplumDeviceId ?? "")", attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])
+    }
+    
+    override func onClick(_ navigationController: UINavigationController?) {
+        copyLeanplumDeviceIDAndPresentAlert(by: navigationController)
+    }
+    
+    func copyLeanplumDeviceIDAndPresentAlert(by navigationController: UINavigationController?) {
+        let alertTitle = Strings.SettingsCopyAppVersionAlertTitle
+        let alert = AlertController(title: alertTitle, message: nil, preferredStyle: .alert)
+        UIPasteboard.general.string = "\(LeanPlumClient.shared.leanplumDeviceId ?? "")"
+        navigationController?.topViewController?.present(alert, animated: true) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                alert.dismiss(animated: true)
+            }
+        }
     }
 }
 
-class SetOnboardingV2: HiddenSetting {
+class ClearOnboardingABVariables: HiddenSetting {
     override var title: NSAttributedString? {
-        return NSAttributedString(string: NSLocalizedString("Debug: Set onboarding type to v2", comment: "Debug option"), attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])
+        // If we are running an A/B test this will also fetch the A/B test variables from leanplum. Re-open app to see the effect.
+        return NSAttributedString(string: NSLocalizedString("Debug: Clear onboarding AB variables", comment: "Debug option"), attributes: [NSAttributedString.Key.foregroundColor: UIColor.theme.tableView.rowText])
     }
 
     override func onClick(_ navigationController: UINavigationController?) {
-        OnboardingUserResearch().onboardingScreenType = .versionV2
+        settings.profile.prefs.removeObjectForKey(PrefsKeys.IntroSeen)
+        OnboardingUserResearch().onboardingScreenType = nil
     }
 }
 

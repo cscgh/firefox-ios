@@ -33,6 +33,12 @@ class WeakTabManagerDelegate {
     }
 }
 
+extension TabManager: TabEventHandler {
+    func tab(_ tab: Tab, didLoadFavicon favicon: Favicon?, with: Data?) {
+        store.preserveTabs(tabs, selectedTab: selectedTab)
+    }
+}
+
 // TabManager must extend NSObjectProtocol in order to implement WKNavigationDelegate
 class TabManager: NSObject {
     fileprivate var delegates = [WeakTabManagerDelegate]()
@@ -116,6 +122,8 @@ class TabManager: NSObject {
         self.store = TabManagerStore(imageStore: imageStore)
         super.init()
 
+        register(self, forTabEvents: .didLoadFavicon)
+
         addNavigationDelegate(self)
 
         NotificationCenter.default.addObserver(self, selector: #selector(prefsDidChange), name: UserDefaults.didChangeNotification, object: nil)
@@ -197,7 +205,6 @@ class TabManager: NSObject {
         } else {
             _selectedIndex = -1
         }
-        assert(_selectedIndex > -1, "Tab expected to be in `tabs`")
 
         store.preserveTabs(tabs, selectedTab: selectedTab)
 
@@ -213,6 +220,10 @@ class TabManager: NSObject {
             TabEvent.post(.didGainFocus, for: tab)
             tab.applyTheme()
         }
+    }
+    
+    func preserveTabs() {
+        store.preserveTabs(tabs, selectedTab: selectedTab)
     }
 
     func shouldClearPrivateTabs() -> Bool {
@@ -344,6 +355,7 @@ class TabManager: NSObject {
             tab.loadRequest(request)
         } else if !isPopup {
             let newTabChoice = NewTabAccessors.getNewTabPage(profile.prefs)
+            tab.newTabPageType = newTabChoice
             switch newTabChoice {
             case .homePage:
                 // We definitely have a homepage if we've got here
@@ -448,7 +460,7 @@ class TabManager: NSObject {
         tabs.remove(at: removalIndex)
         assert(count == prevCount - 1, "Make sure the tab count was actually removed")
 
-        if (tab.isPrivate && privateTabs.count < 1) {
+        if tab.isPrivate && privateTabs.count < 1 {
             privateConfiguration = TabManager.makeWebViewConfig(isPrivate: true, prefs: profile.prefs)
         }
 
@@ -611,6 +623,7 @@ extension TabManager {
                 }
             }
         }
+        
         guard count == 0, !AppConstants.IsRunningTest, !DebugSettingsBundleOptions.skipSessionRestore, store.hasTabsToRestoreAtStartup else {
             return
         }
@@ -646,7 +659,7 @@ extension TabManager: WKNavigationDelegate {
         guard let tab = self[webView] else { return }
 
         if let tpHelper = tab.contentBlocker, !tpHelper.isEnabled {
-            webView.evaluateJavaScript("window.__firefox__.TrackingProtectionStats.setEnabled(false, \(UserScriptManager.appIdToken))")
+            webView.evaluateJavascriptInDefaultContentWorld("window.__firefox__.TrackingProtectionStats.setEnabled(false, \(UserScriptManager.appIdToken))")
         }
     }
 

@@ -6,15 +6,6 @@ import Foundation
 import Leanplum
 import Shared
 
-struct LPVariables {
-    // Variable Used for AA test
-    static var showOnboardingScreenAA = LPVar.define("showOnboardingScreen", with: true)
-    // Variable Used for AB test
-    static var showOnboardingScreenAB = LPVar.define("showOnboardingScreen_2", with: true)
-    // Variable Used for 2nd Iteration of Onboarding AB Test
-    static var onboardingABTestV2 = LPVar.define("onboardingABTestV2", with: true)
-}
-
 // For LP variable below is the convention we follow
 // True = Current Onboarding Screen
 // False = New Onboarding Screen

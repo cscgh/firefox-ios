@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import Glean
+import MozillaAppServices
 import Shared
 import Telemetry
 
@@ -70,7 +70,6 @@ class TelemetryWrapper {
         telemetryConfig.measureUserDefaultsSetting(forKey: ThemeManagerPrefs.automaticSwitchIsOn.rawValue, withDefaultValue: false)
         telemetryConfig.measureUserDefaultsSetting(forKey: ThemeManagerPrefs.automaticSliderValue.rawValue, withDefaultValue: 0)
         telemetryConfig.measureUserDefaultsSetting(forKey: ThemeManagerPrefs.themeName.rawValue, withDefaultValue: "normal")
-        telemetryConfig.measureUserDefaultsSetting(forKey: "profile.show-translation", withDefaultValue: true)
 
         let prefs = profile.prefs
         legacyTelemetry.beforeSerializePing(pingType: CorePingBuilder.PingType) { (inputDict) -> [String: Any?] in
@@ -344,7 +343,11 @@ extension TelemetryWrapper {
         case accountDisconnected = "disconnected"
         case appMenu = "app_menu"
         case settings = "settings"
+        case settingsMenuSetAsDefaultBrowser = "set-as-default-browser-menu-go-to-settings"
         case onboarding = "onboarding"
+        case dismissDefaultBrowserCard = "default-browser-card"
+        case goToSettingsDefaultBrowserCard = "default-browser-card-go-to-settings"
+        case asDefaultBrowser = "as-default-browser"
     }
 
     public enum EventValue: String {
@@ -413,7 +416,7 @@ extension TelemetryWrapper {
             GleanMetrics.ReadingList.markUnread.add()
         // Preferences
         case (.action, .change, .setting, _, let extras):
-            if let preference = extras?["pref"] as? String, let to = (extras?["go"] ?? "undefined") as? String {
+            if let preference = extras?["pref"] as? String, let to = (extras?["to"] ?? "undefined") as? String {
                 GleanMetrics.Preferences.changed.record(
                 extra: [GleanMetrics.Preferences.ChangedKeys.preference: preference,
                         GleanMetrics.Preferences.ChangedKeys.changedTo: to])
@@ -432,9 +435,18 @@ extension TelemetryWrapper {
             GleanMetrics.Tabs.close[privateOrNormal].add()
         case (.action, .tap, .addNewTabButton, _, _):
             GleanMetrics.Tabs.newTabPressed.add()
+        // Settings Menu
+        case (.action, .tap, .settingsMenuSetAsDefaultBrowser, _, _):
+            GleanMetrics.SettingsMenu.setAsDefaultBrowserPressed.add()
         // Start Search Button
         case (.action, .tap, .startSearchButton, _, _):
             GleanMetrics.Search.startSearchPressed.add()
+        case (.action, .tap, .dismissDefaultBrowserCard, _, _):
+            GleanMetrics.DefaultBrowserCard.dismissPressed.add()
+        case (.action, .tap, .goToSettingsDefaultBrowserCard, _, _):
+            GleanMetrics.DefaultBrowserCard.goToSettingsPressed.add()
+        case (.action, .open, .asDefaultBrowser, _, _):
+            GleanMetrics.App.openedAsDefaultBrowser.add()
         default:
             let msg = "Uninstrumented metric recorded: \(category), \(method), \(object), \(value), \(String(describing: extras))"
             Sentry.shared.send(message: msg, severity: .debug)

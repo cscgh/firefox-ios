@@ -35,6 +35,11 @@ private struct BrowserViewControllerUX {
     fileprivate static let BookmarkStarAnimationOffset: CGFloat = 80
 }
 
+struct UrlToOpenModel {
+    var url: URL?
+    var isPrivate: Bool
+}
+
 /// Enum used to track flow for telemetry events
 enum ReferringPage {
     case onboarding
@@ -63,7 +68,9 @@ class BrowserViewController: UIViewController {
     private var onboardingUserResearch: OnboardingUserResearch?
     private var newTabUserResearch: NewTabUserResearch?
     lazy var mailtoLinkHandler = MailtoLinkHandler()
-
+    var urlFromAnotherApp: UrlToOpenModel?
+    var isCrashAlertShowing: Bool = false
+    var currentMiddleButtonState: MiddleButtonState?
     fileprivate var customSearchBarButton: UIBarButtonItem?
 
     // popover rotation handling
@@ -237,7 +244,8 @@ class BrowserViewController: UIViewController {
     func updateToolbarStateForTraitCollection(_ newCollection: UITraitCollection, withTransitionCoordinator coordinator: UIViewControllerTransitionCoordinator? = nil) {
         let showToolbar = shouldShowFooterForTraitCollection(newCollection)
         let showTopTabs = shouldShowTopTabsForTraitCollection(newCollection)
-
+        let shouldShowNewTabButton = false
+        
         urlBar.topTabsIsShowing = showTopTabs
         urlBar.setShowToolbar(!showToolbar)
         toolbar?.addNewTabButton.isHidden = showToolbar
@@ -252,6 +260,15 @@ class BrowserViewController: UIViewController {
             toolbar?.applyUIMode(isPrivate: tabManager.selectedTab?.isPrivate ?? false)
             toolbar?.applyTheme()
             toolbar?.addNewTabButton.isHidden = true
+            // This is for showing (+) add tab middle button with A/B test where we need to update both toolbar and url bar when (+) button is enabled.
+            // Urlbar already has reader mode state but we still need to refresh it so that if reader mode is available we don't accidently show reload or stop button in url bar
+            if shouldShowNewTabButton {
+                toolbar?.updateMiddleButtonState(.newTab)
+                let state = urlBar.locationView.readerModeState
+                urlBar.updateReaderModeState(state)
+            } else {
+                toolbar?.updateMiddleButtonState(currentMiddleButtonState ?? .search)
+            }
             updateTabCountUsingTabManager(self.tabManager)
         }
 
@@ -587,13 +604,17 @@ class BrowserViewController: UIViewController {
         }
         let alert = UIAlertController.restoreTabsAlert(
             okayCallback: { _ in
-                self.tabManager.restoreTabs()
+                self.isCrashAlertShowing = false
+                self.tabManager.restoreTabs(true)
             },
             noCallback: { _ in
+                self.isCrashAlertShowing = false
                 self.tabManager.selectTab(self.tabManager.addTab())
+                self.openUrlAfterRestore()
             }
         )
         self.present(alert, animated: true, completion: nil)
+        isCrashAlertShowing = true
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -902,22 +923,25 @@ class BrowserViewController: UIViewController {
     }
     
     func setupMiddleButtonStatus(isLoading: Bool) {
-        let shouldShowNewTabButton = profile.prefs.boolForKey(PrefsKeys.ShowNewTabToolbarButton) ?? (newTabUserResearch?.newTabState ?? false)
+        let shouldShowNewTabButton = false
         
         // No tab
         guard let tab = tabManager.selectedTab else {
             navigationToolbar.updateMiddleButtonState(.search)
+            currentMiddleButtonState = .search
             return
         }
         
         // Tab with starting page
         if tab.isURLStartingPage {
             navigationToolbar.updateMiddleButtonState(.search)
+            currentMiddleButtonState = .search
             return
         }
         
         let state: MiddleButtonState = shouldShowNewTabButton ? .newTab : (isLoading ? .stop : .reload)
         navigationToolbar.updateMiddleButtonState(state)
+        currentMiddleButtonState = state
     }
 
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
@@ -1026,8 +1050,25 @@ class BrowserViewController: UIViewController {
     }
 
     func switchToTabForURLOrOpen(_ url: URL, isPrivate: Bool = false) {
+        guard !isCrashAlertShowing else {
+            urlFromAnotherApp = UrlToOpenModel(url: url, isPrivate: isPrivate)
+            return
+        }
         popToBVC()
         if let tab = tabManager.getTabForURL(url) {
+            tabManager.selectTab(tab)
+        } else {
+            openURLInNewTab(url, isPrivate: isPrivate)
+        }
+    }
+    
+    func switchToTabForWidgetURLOrOpen(_ url: URL, uuid: String,  isPrivate: Bool = false) {
+        guard !isCrashAlertShowing else {
+            urlFromAnotherApp = UrlToOpenModel(url: url, isPrivate: isPrivate)
+            return
+        }
+        popToBVC()
+        if let tab = tabManager.getTabForUUID(uuid: uuid) {
             tabManager.selectTab(tab)
         } else {
             openURLInNewTab(url, isPrivate: isPrivate)
@@ -1338,7 +1379,7 @@ extension BrowserViewController: URLBarDelegate {
 
         // Wait for both the bookmark status and the pinned status
         deferredBookmarkStatus.both(deferredPinnedTopSiteStatus).uponQueue(.main) {
-            let shouldShowNewTabButton = self.profile.prefs.boolForKey(PrefsKeys.ShowNewTabToolbarButton) ?? (self.newTabUserResearch?.newTabState ?? false)
+            let shouldShowNewTabButton = false
             let isBookmarked = $0.successValue ?? false
             let isPinned = $1.successValue ?? false
             let pageActions = self.getTabActions(tab: tab, buttonView: button, presentShareMenu: actionMenuPresenter,
@@ -1931,6 +1972,13 @@ extension BrowserViewController: TabManagerDelegate {
 
     func tabManagerDidRestoreTabs(_ tabManager: TabManager) {
         updateTabCountUsingTabManager(tabManager)
+        openUrlAfterRestore()
+    }
+    
+    func openUrlAfterRestore() {
+        guard let url = urlFromAnotherApp?.url else { return }
+        openURLInNewTab(url, isPrivate: urlFromAnotherApp?.isPrivate ?? false)
+        urlFromAnotherApp = nil
     }
 
     func show(toast: Toast, afterWaiting delay: DispatchTimeInterval = SimpleToastUX.ToastDelayBefore, duration: DispatchTimeInterval? = SimpleToastUX.ToastDismissAfter) {
@@ -2229,44 +2277,10 @@ extension BrowserViewController: ContextMenuHelperDelegate {
                 dialogTitle = elements.title ?? url.absoluteString
             }
 
-            let photoAuthorizeStatus = PHPhotoLibrary.authorizationStatus()
             let saveImageAction = UIAlertAction(title: Strings.ContextMenuSaveImage, style: .default) { _ in
-                let handlePhotoLibraryAuthorized = {
-                    DispatchQueue.main.async {
-                        self.getImageData(url) { data in
-                            PHPhotoLibrary.shared().performChanges({
-                                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
-                            })
-                        }
-                    }
-                }
-
-                let handlePhotoLibraryDenied = {
-                    DispatchQueue.main.async {
-                        let accessDenied = UIAlertController(title: Strings.PhotoLibraryFirefoxWouldLikeAccessTitle, message: Strings.PhotoLibraryFirefoxWouldLikeAccessMessage, preferredStyle: .alert)
-                        let dismissAction = UIAlertAction(title: Strings.CancelString, style: .default, handler: nil)
-                        accessDenied.addAction(dismissAction)
-                        let settingsAction = UIAlertAction(title: Strings.OpenSettingsString, style: .default ) { _ in
-                            UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!, options: [:])
-                        }
-                        accessDenied.addAction(settingsAction)
-                        self.present(accessDenied, animated: true, completion: nil)
-                    }
-                }
-
-                if photoAuthorizeStatus == .notDetermined {
-                    PHPhotoLibrary.requestAuthorization({ status in
-                        guard status == .authorized else {
-                            handlePhotoLibraryDenied()
-                            return
-                        }
-
-                        handlePhotoLibraryAuthorized()
-                    })
-                } else if photoAuthorizeStatus == .authorized {
-                    handlePhotoLibraryAuthorized()
-                } else {
-                    handlePhotoLibraryDenied()
+                self.getImageData(url) { data in
+                    guard let image = UIImage(data: data) else { return }
+                    self.writeToPhotoAlbum(image: image)
                 }
             }
             actionSheetController.addAction(saveImageAction, accessibilityIdentifier: "linkContextMenu.saveImage")

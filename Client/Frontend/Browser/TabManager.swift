@@ -572,6 +572,14 @@ class TabManager: NSObject {
         assert(Thread.isMainThread)
         return tabs.filter({ $0.webView?.url == url }).first
     }
+    
+    func getTabForUUID(uuid: String) -> Tab? {
+        assert(Thread.isMainThread)
+        let filterdTabs = tabs.filter { tab -> Bool in
+            tab.tabUUID == uuid
+        }
+        return filterdTabs.first
+    }
 
     @objc func prefsDidChange() {
         DispatchQueue.main.async {
@@ -613,7 +621,7 @@ extension TabManager {
         return store.hasTabsToRestoreAtStartup
     }
 
-    func restoreTabs() {
+    func restoreTabs(_ forced: Bool = false) {
         defer {
             // Always make sure there is a single normal tab.
             if normalTabs.isEmpty {
@@ -624,7 +632,7 @@ extension TabManager {
             }
         }
         
-        guard count == 0, !AppConstants.IsRunningTest, !DebugSettingsBundleOptions.skipSessionRestore, store.hasTabsToRestoreAtStartup else {
+        guard forced || count == 0, !AppConstants.IsRunningTest, !DebugSettingsBundleOptions.skipSessionRestore, store.hasTabsToRestoreAtStartup else {
             return
         }
 
@@ -634,11 +642,11 @@ extension TabManager {
             tabToSelect = addTab(isPrivate: true)
         }
 
+        selectTab(tabToSelect)
+        
         for delegate in self.delegates {
             delegate.get()?.tabManagerDidRestoreTabs(self)
         }
-
-        selectTab(tabToSelect)
     }
 }
 

@@ -65,7 +65,6 @@ class BrowserViewController: UIViewController {
     fileprivate var searchLoader: SearchLoader?
     let alertStackView = UIStackView() // All content that appears above the footer should be added to this view. (Find In Page/SnackBars)
     var findInPageBar: FindInPageBar?
-    private var onboardingUserResearch: OnboardingUserResearch?
     private var newTabUserResearch: NewTabUserResearch?
     lazy var mailtoLinkHandler = MailtoLinkHandler()
     var urlFromAnotherApp: UrlToOpenModel?
@@ -486,8 +485,6 @@ class BrowserViewController: UIViewController {
 
         NotificationCenter.default.addObserver(self, selector: #selector(self.appMenuBadgeUpdate), name: .FirefoxAccountStateChange, object: nil)
         
-        // Setup onboarding user research for A/B testing
-        onboardingUserResearch = OnboardingUserResearch()
         // Setup New Tab user research for A/B testing
         newTabUserResearch = NewTabUserResearch()
         newTabUserResearch?.lpVariableObserver()
@@ -1036,7 +1033,7 @@ class BrowserViewController: UIViewController {
     /// Call this whenever the page URL changes.
     fileprivate func updateURLBarDisplayURL(_ tab: Tab) {
         urlBar.currentURL = tab.url?.displayURL
-        urlBar.locationView.showLockIcon(forSecureContent:  tab.webView?.hasOnlySecureContent ?? false)
+        urlBar.locationView.showLockIcon(forSecureContent: tab.webView?.hasOnlySecureContent ?? false)
         let isPage = tab.url?.displayURL?.isWebPage() ?? false
         navigationToolbar.updatePageStatus(isPage)
     }
@@ -2035,7 +2032,7 @@ extension BrowserViewController: UIAdaptivePresentationControllerDelegate {
 extension BrowserViewController {
     func presentIntroViewController(_ alwaysShow: Bool = false) {
         if alwaysShow || profile.prefs.intForKey(PrefsKeys.IntroSeen) == nil {
-            onboardingUserResearchHelper(alwaysShow)
+            showProperIntroVC()
         }
     }
     
@@ -2110,20 +2107,8 @@ extension BrowserViewController {
         return false
     }
     
-    private func onboardingUserResearchHelper(_ alwaysShow: Bool = false) {
-        if alwaysShow {
-            showProperIntroVC()
-            return
-        }
-        // Setup user research closure and observer to fetch the updated LP Variables
-        onboardingUserResearch?.updatedLPVariable =  {
-            self.showProperIntroVC()
-        }
-        onboardingUserResearch?.lpVariableObserver()
-    }
-    
     private func showProperIntroVC() {
-        let introViewController = IntroViewControllerV2()
+        let introViewController = IntroViewController()
         introViewController.didFinishClosure = { controller, fxaLoginFlow in
             self.profile.prefs.setInt(1, forKey: PrefsKeys.IntroSeen)
             controller.dismiss(animated: true) {
@@ -2232,13 +2217,13 @@ extension BrowserViewController: ContextMenuHelperDelegate {
             }
 
             if !isPrivate {
-                let openNewTabAction =  UIAlertAction(title: Strings.ContextMenuOpenInNewTab, style: .default) { _ in
+                let openNewTabAction = UIAlertAction(title: Strings.ContextMenuOpenInNewTab, style: .default) { _ in
                     addTab(url, false)
                 }
                 actionSheetController.addAction(openNewTabAction, accessibilityIdentifier: "linkContextMenu.openInNewTab")
             }
 
-            let openNewPrivateTabAction =  UIAlertAction(title: Strings.ContextMenuOpenInNewPrivateTab, style: .default) { _ in
+            let openNewPrivateTabAction = UIAlertAction(title: Strings.ContextMenuOpenInNewPrivateTab, style: .default) { _ in
                 addTab(url, true)
             }
             actionSheetController.addAction(openNewPrivateTabAction, accessibilityIdentifier: "linkContextMenu.openInNewPrivateTab")

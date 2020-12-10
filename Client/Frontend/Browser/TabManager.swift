@@ -220,6 +220,7 @@ class TabManager: NSObject {
             TabEvent.post(.didGainFocus, for: tab)
             tab.applyTheme()
         }
+        TelemetryWrapper.recordEvent(category: .action, method: .tap, object: .tab)
     }
     
     func preserveTabs() {
